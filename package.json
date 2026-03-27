@@ -1,8 +1,8 @@
 {
   "name": "20260326app",
   "version": "1.0.0",
-  "homepage": "https://<your-username>.github.io/20260326APP",
-  "main": "index.js",
+  "homepage": "https://wu8858009-del.github.io",
+  "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -12,6 +12,7 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "1.23.1",
     "@expo/metro-runtime": "~6.1.2",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-picker/picker": "2.11.1",

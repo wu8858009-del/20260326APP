@@ -23,10 +23,13 @@
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
     },
-    "plugins": [
-      "@react-native-community/datetimepicker"
-    ]
+    "experiments": {
+      "baseUrl": "/20260326APP"
+    },
+    "plugins": ["@react-native-community/datetimepicker"]
   }
 }
