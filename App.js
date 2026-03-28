@@ -1,460 +1,284 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  StyleSheet, Text, View, ScrollView, SafeAreaView,
-  TouchableOpacity, Modal, TextInput, Alert, useWindowDimensions, Platform, Button, TouchableWithoutFeedback, KeyboardAvoidingView
+  StyleSheet, Text, View, SectionList, TouchableOpacity, SafeAreaView,
+  StatusBar, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView
 } from 'react-native';
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import { Calendar, LocaleConfig } from 'react-native-calendars';
 
-const App = () => {
-  const { width } = useWindowDimensions();
+// --- 日曆中文化配置 ---
+LocaleConfig.locales['zh'] = {
+  monthNames: ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'],
+  monthNamesShort: ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'],
+  dayNames: ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'],
+  dayNamesShort: ['日','一','二','三','四','五','六'],
+  today: '今天'
+};
+LocaleConfig.defaultLocale = 'zh';
+
+const PERSIST_TASKS_KEY = 'worklog_tasks_v11';
+const PERSIST_CATS_KEY = 'worklog_cats_v11';
+const DEFAULT_CATEGORIES = ['工程部', '工務部', '委外廠商', '環境維護', '緊急維修'];
+
+export default function App() {
+  const [tasks, setTasks] = useState([]);
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isRehydrated, setIsRehydrated] = useState(false);
+  
+  // 控制兩個 Modal 的顯示
   const [modalVisible, setModalVisible] = useState(false);
+  const [catManagerVisible, setCatManagerVisible] = useState(false);
+  
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [newCatName, setNewCatName] = useState('');
+  
+  const getTodayStr = () => new Date().toISOString().split('T')[0];
+  const [form, setForm] = useState({ 
+    task: '', status: '', category: '工程部', date: getTodayStr(), progress: 0, workers: '' 
+  });
 
-  // 計算本週週一至週五的日期範圍
-  const getWeekRange = () => {
-    const now = new Date();
-    const day = now.getDay();
-    const diffToMon = now.getDate() - day + (day === 0 ? -6 : 1);
-    const mon = new Date(new Date().setDate(diffToMon));
-    const fri = new Date(new Date().setDate(diffToMon + 4));
-    const fmt = (d) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
-    return `${fmt(mon)} ~ ${fmt(fri)}`;
-  };
+  // --- 初始化載入 ---
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const savedTasks = await AsyncStorage.getItem(PERSIST_TASKS_KEY);
+        const savedCats = await AsyncStorage.getItem(PERSIST_CATS_KEY);
+        if (savedTasks) setTasks(JSON.parse(savedTasks));
+        if (savedCats) setCategories(JSON.parse(savedCats));
+      } finally { setIsRehydrated(true); }
+    };
+    loadData();
+  }, []);
 
-  // 取得當天日期
-  const getTodayDate = () => {
-    const now = new Date();
-    const fmt = (d) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
-    return fmt(now);
-  };
-
-  // --- 表單狀態 ---
-  const [newTask, setNewTask] = useState('');
-  const [newStatus, setNewStatus] = useState('');
-  const [newDate, setNewDate] = useState('');
-  const [newProgress, setNewProgress] = useState('0%');
-  const [targetCategory, setTargetCategory] = useState(1);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [dateValue, setDateValue] = useState(new Date());
-  const [editingItem, setEditingItem] = useState(null);
-  const [progressModalVisible, setProgressModalVisible] = useState(false);
-  const [activeProgressItem, setActiveProgressItem] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(null);
-  const [dateModalVisible, setDateModalVisible] = useState(false);
-
-  const DatePickerAndroid = {
-    open: (options) => new Promise((resolve) => {
-      if (Platform.OS === 'android') {
-        DateTimePickerAndroid.open({
-          value: selectedDate || new Date(),
-          ...options,
-          onChange: (event, date) => {
-            if (event.type === 'set') resolve(date);
-          }
-        });
-      } else {
-        Alert.alert("提示", "DatePickerAndroid 僅支援 Android 平台");
-      }
-    })
-  };
-
-  const handleOpenDateModal = () => {
-    setDateModalVisible(true);
-  };
-
-  const handleCloseDateModal = () => {
-    setDateModalVisible(false);
-  };
-
-  const handleDateConfirm = (date) => {
-    setSelectedDate(date);
-    handleCloseDateModal();
-  };
-
-  const renderDateModal = () => {
-    return (
-      <Modal visible={dateModalVisible} animationType="slide" transparent={true}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={handleCloseDateModal}>
-          <TouchableWithoutFeedback>
-            <View style={styles.modalContent}>
-              <Button title="開啟日曆" onPress={() => DatePickerAndroid.open({ mode: "date" }).then(handleDateConfirm)} />
-              <Button title="關閉" onPress={handleCloseDateModal} />
-              {selectedDate && <Text style={{ textAlign: 'center', marginTop: 10, fontSize: 16, color: '#fff' }}>選擇日期: {selectedDate.toISOString().substr(0, 10)}</Text>}
-            </View>
-          </TouchableWithoutFeedback>
-        </TouchableOpacity>
-      </Modal>
-    );
-  };
-
-  // --- 工班進場專用狀態 ---
-  const [newDays, setNewDays] = useState(Array(7).fill(false));
-  const [scheduleData, setScheduleData] = useState([
-    { id: 101, days: Array(7).fill(false) },
-
-  ]);
-
-  const [data, setData] = useState([
-    {
-      category: "已完成事項",
-      items: [
-        { id: 1, task: "屋頂落葉處理", status: "定期維護", date: "2026/03/18", progress: "100%" },
-      ]
-    },
-    {
-      category: "需要待修 / 追蹤事項",
-      items: [
-        { id: 2, task: "碧水堂高壓軟管破管", status: "待處理", date: "2026/03/25", progress: "0%" },
-      ]
+  // --- 持久化儲存 ---
+  useEffect(() => {
+    if (isRehydrated) {
+      AsyncStorage.setItem(PERSIST_TASKS_KEY, JSON.stringify(tasks));
+      AsyncStorage.setItem(PERSIST_CATS_KEY, JSON.stringify(categories));
     }
-  ]);
+  }, [tasks, categories, isRehydrated]);
 
-  const handleProgressChange = (progress) => {
-    setNewProgress(progress);
-    if (progress === '100%') {
-      setTargetCategory(0);
-      if (!newStatus || newStatus === '待處理') setNewStatus('已完成');
-    } else {
-      setTargetCategory(1);
-      if (!newStatus || newStatus === '已完成') setNewStatus('待處理');
-    }
+  // --- 分類管理邏輯 ---
+  const addCategory = () => {
+    const name = newCatName.trim();
+    if (!name) return;
+    if (categories.includes(name)) return Alert.alert("提示", "此分類已存在");
+    setCategories([...categories, name]);
+    setNewCatName('');
   };
 
-  const openEditModal = (sectionIdx, item, isSch = false) => {
-    setEditingItem({ sectionIdx, id: item.id, isSch });
-    setTargetCategory(isSch ? 2 : sectionIdx);
-    if (isSch) {
-      setNewDays(item.days);
-    } else {
-      setNewTask(item.task);
-      setNewStatus(item.status);
-      setNewDate(item.date || '');
-      setNewProgress(item.progress);
-    }
-    setModalVisible(true);
-  };
-
-  const handleSave = () => {
-    if (targetCategory === 2) {
-      const updated = scheduleData.map(item =>
-        item.id === editingItem?.id ? { ...item, days: newDays } : item
-      );
-      setScheduleData(updated);
-    } else {
-      if (newTask.trim() === '') return;
-      const newData = [...data];
-      const itemData = { task: newTask, status: newStatus, date: newDate, progress: newProgress };
-
-      if (editingItem) {
-        const { sectionIdx, id } = editingItem;
-        newData[sectionIdx].items = newData[sectionIdx].items.filter(i => i.id !== id);
-        newData[targetCategory].items.push({ id, ...itemData });
-      } else {
-        newData[targetCategory].items.push({ id: Date.now(), ...itemData });
-      }
-      setData(newData);
-    }
-    closeModal();
-  };
-
-  const closeModal = () => {
-    setModalVisible(false);
-    setNewTask(''); setNewStatus(''); setNewDate(''); setNewProgress('0%');
-    setTargetCategory(1); setEditingItem(null);
-    setNewDays(Array(7).fill(false));
-  };
-
-  const openProgressModal = (sectionIdx, item) => {
-    setActiveProgressItem({ sectionIdx, item });
-    setProgressModalVisible(true);
-  };
-
-  const fastUpdateProgress = (val) => {
-    if (!activeProgressItem) return;
-    const { sectionIdx, item } = activeProgressItem;
-    const newData = [...data];
-
-    newData[sectionIdx].items = newData[sectionIdx].items.filter(i => i.id !== item.id);
-    const targetCat = val === '100%' ? 0 : 1;
-    const newStatus = val === '100%' ? '已完成' : '待處理';
-    newData[targetCat].items.push({ ...item, progress: val, status: newStatus });
-
-    setData(newData);
-    setProgressModalVisible(false);
-  };
-
-  // 抽離出來的格式化邏輯
-  const updateFormattedDate = (date) => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    setNewDate(`${y}/${m}/${d}`);
-  };
-
-  const onDateChange = (event, selectedDate) => {
-    // 1. 先更新當前選擇的時間
-    const currentDate = selectedDate || dateValue;
-    setDateValue(currentDate);
-
-    if (Platform.OS === 'android') {
-      setShowDatePicker(false);
-      if (event.type === 'set') {
-        updateFormattedDate(currentDate);
-      }
-    } else {
-      // iOS 與 Web 邏輯：滾動或點選即更新
-      updateFormattedDate(currentDate);
-    }
-  };
-
-  const deleteItem = (sectionIdx, itemId) => {
-    const confirmDelete = () => {
-      const newData = [...data];
-      newData[sectionIdx].items = newData[sectionIdx].items.filter(i => i.id !== itemId);
-      setData(newData);
+  const deleteCategory = (name) => {
+    const performDelete = () => {
+      const updated = categories.filter(c => c !== name);
+      setCategories(updated);
+      if (form.category === name) setForm({ ...form, category: updated[0] || '' });
     };
 
     if (Platform.OS === 'web') {
-      if (window.confirm("確定要刪除這筆紀錄嗎？")) confirmDelete();
+      if (confirm(`確定要刪除「${name}」嗎？`)) performDelete();
     } else {
-      Alert.alert("刪除確認", "確定要刪除這筆紀錄嗎？", [
+      Alert.alert("刪除分類", `確定要刪除「${name}」嗎？`, [
         { text: "取消", style: "cancel" },
-        { text: "刪除", style: "destructive", onPress: confirmDelete }
+        { text: "刪除", style: "destructive", onPress: performDelete }
       ]);
     }
   };
 
+  // --- 任務操作 ---
+  const openModal = (item = null) => {
+    if (item) {
+      setIsEditMode(true);
+      setEditingId(item.id);
+      setForm({ ...item });
+    } else {
+      setIsEditMode(false);
+      setForm({ task: '', status: '', category: categories[0] || '', date: getTodayStr(), progress: 0, workers: '' });
+    }
+    setModalVisible(true);
+  };
+
+  const handleSaveTask = () => {
+    if (!form.task.trim()) return Alert.alert("提示", "請輸入項目名稱");
+    if (isEditMode) setTasks(tasks.map(t => t.id === editingId ? { ...form } : t));
+    else setTasks([{ ...form, id: Date.now().toString() }, ...tasks]);
+    setModalVisible(false);
+  };
+
+  // --- 資料篩選 ---
+  const filtered = useMemo(() => tasks.filter(t => 
+    t.task.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    t.category.toLowerCase().includes(searchQuery.toLowerCase())
+  ), [tasks, searchQuery]);
+  
+  const sections = useMemo(() => [
+    { title: '🛠️ 委外維修', data: filtered.filter(t => t.progress < 100 && t.category === '委外廠商') },
+    { title: '⏳ 進行中', data: filtered.filter(t => t.progress < 100 && t.category !== '委外廠商') },
+    { title: '✅ 已完成', data: filtered.filter(t => t.progress === 100) },
+  ], [filtered]);
+
+  const handlePrint = async () => {
+    const renderRows = (data) => data.map(t => `<tr><td>${t.date}</td><td>${t.category}</td><td><b>${t.task}</b></td><td>${t.status || '-'}</td><td>${t.workers || '-'}</td><td>${t.progress}%</td></tr>`).join('');
+    const html = `<html><head><style>body{padding:20px;font-family:sans-serif;}table{width:100%;border-collapse:collapse;margin-bottom:20px;}th,td{border:1px solid #ccc;padding:8px;font-size:11px;}th{background:#f2f2f2;}</style></head><body><h1>水灣碧潭工程週誌</h1>${sections.map(s => s.data.length > 0 ? `<h2>${s.title}</h2><table><thead><tr><th>日期</th><th>分類</th><th>項目</th><th>說明</th><th>人員</th><th>進度</th></tr></thead><tbody>${renderRows(s.data)}</tbody></table>` : '').join('')}</body></html>`;
+    try {
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri);
+    } catch (e) { Alert.alert("錯誤", "PDF 失敗"); }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <TouchableOpacity
-        style={styles.addButton}
-        onPress={() => { setEditingItem(null); setModalVisible(true); }}
-      >
-        <Text style={styles.addButtonText}>＋ 新增資料</Text>
-      </TouchableOpacity>
-
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.contentInner}>
-          <View style={styles.header}>
-            <Text style={styles.companyName}>水灣企業股份有限公司</Text>
-            <Text style={styles.reportTitle}>工作週誌</Text>
-          </View>
-
-          <View style={styles.tableWrapper}>
-            <View style={styles.weekInfoBar}>
-              <Text style={styles.weekInfoText}>本週日期：{getWeekRange()}</Text>
-              <Text style={styles.weekInfoText}>當天日期：{getTodayDate()}</Text>
-            </View>
-            <View style={[styles.row, styles.tableHeader]}>
-              <Text style={[styles.cell, styles.bold, { flex: 1, textAlign: 'center' }]}>編號</Text>
-              <Text style={[styles.cell, styles.bold, { flex: 3 }]}>工作項目</Text>
-              <Text style={[styles.cell, styles.bold, { flex: 1.8 }]}>狀態說明</Text>
-              <Text style={[styles.cell, styles.bold, { flex: 1.5, textAlign: 'center' }]}>預計完成</Text>
-              <Text style={[styles.cell, styles.bold, { flex: 1.2, textAlign: 'center' }]}>進度</Text>
-            </View>
-
-            {data.map((section, sIdx) => (
-              <View key={sIdx}>
-                <View style={[styles.categoryRow, sIdx === 1 && styles.alertCategory]}>
-                  <Text style={styles.categoryText}>{section.category}</Text>
-                </View>
-                {section.items.map((item, iIdx) => (
-                  <View key={item.id} style={styles.row}>
-                    <TouchableOpacity
-                      style={{ flex: 7.3, flexDirection: 'row' }}
-                      onPress={() => openEditModal(sIdx, item)}
-                      onLongPress={() => deleteItem(sIdx, item.id)}
-                    >
-                      <Text style={[styles.cell, { flex: 1, textAlign: 'center' }]}>{iIdx + 1}</Text>
-                      <Text style={[styles.cell, { flex: 3 }]}>{item.task}</Text>
-                      <Text style={[styles.cell, { flex: 1.8 }]}>{item.status}</Text>
-                      <Text style={[styles.cell, { flex: 1.5, textAlign: 'center' }]}>{item.date}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.cell, { flex: 1.2 }]} onPress={() => openProgressModal(sIdx, item)}>
-                      <Text style={{ textAlign: 'center', color: '#007AFF', fontWeight: 'bold' }}>{item.progress}</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            ))}
-          </View>
-
-          {/* 進場工作排程表 */}
-          <View style={[styles.tableWrapper, { marginTop: 30 }]}>
-            <View style={styles.categoryRow}>
-              <Text style={styles.categoryText}>工班進場</Text>
-            </View>
-            <View style={[styles.row, styles.tableHeader]}>
-              {['一', '二', '三', '四', '五', '六', '日'].map(day => (
-                <Text key={day} style={[styles.cell, styles.bold, { flex: 1, textAlign: 'center' }]}>{day}</Text>
-              ))}
-            </View>
-            {scheduleData.map((item) => (
-              <TouchableOpacity
-                key={item.id} style={styles.row}
-                onPress={() => openEditModal(null, item, true)}
-              >
-                {item.days.map((d, i) => (
-                  <Text key={i} style={[styles.cell, { flex: 1, textAlign: 'center', height: 40 }]}>{d ? 'V' : ''}</Text>
-                ))}
-              </TouchableOpacity>
-            ))}
-          </View>
+      <StatusBar barStyle="dark-content" />
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>水灣碧潭工程週誌</Text>
+        <View style={styles.searchRow}>
+          <TextInput style={styles.searchBar} placeholder="🔍 搜尋內容..." value={searchQuery} onChangeText={setSearchQuery} />
+          <TouchableOpacity style={styles.printBtn} onPress={handlePrint}><MaterialCommunityIcons name="file-pdf-box" size={30} color="white" /></TouchableOpacity>
         </View>
-      </ScrollView>
+      </View>
 
-      {/* 編輯/新增 Modal */}
-      <Modal visible={modalVisible} animationType="fade" transparent={true}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={closeModal}>
-            <TouchableWithoutFeedback>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>{editingItem ? "修改紀錄" : "新增紀錄"}</Text>
+      <SectionList
+        sections={sections} keyExtractor={item => item.id}
+        renderSectionHeader={({ section: { title, data } }) => data.length > 0 ? <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>{title}</Text></View> : null}
+        renderItem={({ item }) => (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={{flexDirection:'row'}}><Text style={styles.tag}>{item.category}</Text><Text style={styles.dateTag}>{item.date}</Text></View>
+              <Text style={[styles.progressNum, { color: item.progress === 100 ? '#4CAF50' : '#2196F3' }]}>{item.progress}%</Text>
+            </View>
+            <Text style={styles.taskTitle}>{item.task}</Text>
+            {item.workers ? <Text style={styles.workerText}>👷 工班：{item.workers}</Text> : null}
+            <Text style={styles.statusDesc}>{item.status}</Text>
+            <View style={styles.btnRow}>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => openModal(item)}><MaterialCommunityIcons name="pencil" size={18} color="#2196F3" /><Text style={styles.blueText}> 編輯</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => setTasks(tasks.filter(t => t.id !== item.id))}><MaterialCommunityIcons name="trash-can" size={18} color="#F44336" /><Text style={styles.redText}> 刪除</Text></TouchableOpacity>
+            </View>
+          </View>
+        )}
+      />
 
-                {targetCategory === 2 ? (
-                  <>
-                    <Text style={styles.label}>點擊選擇進場日期</Text>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, marginTop: 10 }}>
-                      {['一', '二', '三', '四', '五', '六', '日'].map((day, idx) => (
-                        <TouchableOpacity
-                          key={idx}
-                          style={{ padding: 8, backgroundColor: newDays[idx] ? '#007AFF' : '#3a3a3c', borderRadius: 4, minWidth: 35, alignItems: 'center' }}
-                          onPress={() => {
-                            const d = [...newDays]; d[idx] = !d[idx]; setNewDays(d);
-                          }}
-                        >
-                          <Text style={{ color: '#fff', fontSize: 12 }}>{day}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.label}>工作項目</Text>
-                    <TextInput style={styles.input} value={newTask} onChangeText={setNewTask} placeholder="內容" placeholderTextColor="#666" />
-                    <Text style={styles.label}>狀態說明</Text>
-                    <TextInput style={styles.input} value={newStatus} onChangeText={setNewStatus} placeholder="狀態" placeholderTextColor="#666" />
-                    <Text style={styles.label}>預計完成日期 (YYYY/MM/DD 或 簡寫如MM/DD)</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={newDate}
-                      onChangeText={(text) => {
-                        const cleaned = text.replace(/\D/g, ''); // 只保留數字
-                        let formatted = cleaned;
-                        if (cleaned.length > 4) formatted = `${cleaned.slice(0, 4)}/${cleaned.slice(4, 6)}`;
-                        if (cleaned.length > 6) formatted = `${formatted}/${cleaned.slice(6, 8)}`;
-                        setNewDate(formatted);
-                      }}
-                      onBlur={() => {
-                        const cleaned = newDate.replace(/\D/g, '');
-                        if (cleaned.length === 3 || cleaned.length === 4) {
-                          const year = new Date().getFullYear();
-                          const month = cleaned.length === 3 ? '0' + cleaned[0] : cleaned.slice(0, 2);
-                          const day = cleaned.length === 3 ? cleaned.slice(1) : cleaned.slice(2);
-                          setNewDate(`${year}/${month}/${day}`);
-                        }
-                      }}
-                      placeholder="例如: 325 或 20260325"
-                      placeholderTextColor="#666"
-                      keyboardType="number-pad"
-                      maxLength={10}
-                    />
-                  </>
-                )}
+      <TouchableOpacity style={styles.fab} onPress={() => openModal()}><MaterialCommunityIcons name="plus" size={32} color="white" /></TouchableOpacity>
 
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity style={styles.cancelBtn} onPress={closeModal}><Text style={styles.cancelBtnText}>取消</Text></TouchableOpacity>
-                  <TouchableOpacity style={styles.saveBtn} onPress={handleSave}><Text style={styles.whiteText}>儲存</Text></TouchableOpacity>
-                </View>
+      {/* 主編輯 Modal */}
+      <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>{isEditMode ? '修改紀錄' : '新增紀錄'}</Text>
+              
+              <Text style={styles.label}>項目名稱</Text>
+              <TextInput style={styles.input} value={form.task} onChangeText={t => setForm({...form, task: t})} />
+
+              <View style={styles.rowLabel}>
+                <Text style={styles.label}>工程分類</Text>
+                {/* 修正點：增加感應熱區與直接觸發 */}
+                <TouchableOpacity 
+                  onPress={() => setCatManagerVisible(true)} 
+                  hitSlop={{top: 15, bottom: 15, left: 15, right: 15}}
+                >
+                  <Text style={styles.manageText}>⚙️ 管理分類</Text>
+                </TouchableOpacity>
               </View>
-            </TouchableWithoutFeedback>
-          </TouchableOpacity>
+              <View style={styles.catGroup}>
+                {categories.map(cat => (
+                  <TouchableOpacity key={cat} style={[styles.catBtn, form.category === cat && styles.catBtnActive]} onPress={() => setForm({...form, category: cat})}>
+                    <Text style={form.category === cat ? {color:'white'} : {color:'#666'}}>{cat}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.label}>進場人員 / 人數</Text>
+              <TextInput style={styles.input} placeholder="如：大鼎 2人" value={form.workers} onChangeText={t => setForm({...form, workers: t})} />
+
+              <Text style={styles.label}>日期</Text>
+              <Calendar onDayPress={d => setForm({...form, date: d.dateString})} markedDates={{[form.date]: {selected: true, selectedColor: '#1A237E'}}} />
+
+              <Text style={styles.label}>進度: {form.progress}%</Text>
+              <View style={styles.catGroup}>
+                {[0, 25, 50, 75, 100].map(p => (
+                  <TouchableOpacity key={p} style={[styles.catBtn, form.progress === p && styles.catBtnActive]} onPress={() => setForm({...form, progress: p})}>
+                    <Text style={form.progress === p ? {color:'white'} : {color:'#666'}}>{p}%</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.modalActionRow}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}><Text>取消</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.saveBtn} onPress={handleSaveTask}><Text style={{color:'white', fontWeight:'bold'}}>儲存</Text></TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* 進度百分比選擇 Modal */}
-      <Modal visible={progressModalVisible} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setProgressModalVisible(false)}>
-          <TouchableWithoutFeedback>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>更改進度</Text>
-              <TouchableOpacity style={styles.progressOption} onPress={() => fastUpdateProgress('0%')}>
-                <Text style={[styles.progressOptionText, { color: '#FF453A' }]}>0% (待處理)</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.progressOption} onPress={() => fastUpdateProgress('100%')}>
-                <Text style={[styles.progressOptionText, { color: '#32D74B' }]}>100% (已完成)</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.cancelBtn, { marginTop: 10 }]} onPress={() => setProgressModalVisible(false)}><Text style={[styles.cancelBtnText, { textAlign: 'center' }]}>取消</Text></TouchableOpacity>
-            </View>
-          </TouchableWithoutFeedback>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* 日期選擇 Modal */}
-      <Modal visible={showDatePicker} transparent animationType="slide">
-        <TouchableOpacity style={styles.datePickerOverlay} activeOpacity={1} onPress={() => setShowDatePicker(false)}>
-          <TouchableWithoutFeedback>
-            <View style={styles.datePickerSheet}>
-              <View style={styles.datePickerHeader}>
-                <TouchableOpacity onPress={() => setShowDatePicker(false)}><Text style={styles.linkText}>取消</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => {
-                  updateFormattedDate(dateValue);
-                  setShowDatePicker(false);
-                }}><Text style={styles.confirmText}>完成</Text></TouchableOpacity>
+      {/* 管理分類 Modal：將其移出主 Modal 層級以增加 Expo Go 相容性 */}
+      <Modal visible={catManagerVisible} animationType="fade" transparent={true} onRequestClose={() => setCatManagerVisible(false)}>
+        <View style={styles.managerOverlay}>
+          <KeyboardAvoidingView behavior="padding" style={{width:'100%'}}>
+            <View style={styles.managerContent}>
+              <Text style={styles.modalTitle}>管理工程分類</Text>
+              <View style={styles.addCatRow}>
+                <TextInput style={[styles.input, {flex:1, marginRight:10}]} placeholder="新增分類" value={newCatName} onChangeText={setNewCatName} />
+                <TouchableOpacity style={styles.addBtn} onPress={addCategory}><Text style={{color:'white'}}>新增</Text></TouchableOpacity>
               </View>
-              <DateTimePicker
-                value={dateValue}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                onChange={onDateChange}
-                minimumDate={new Date()}
-                themeVariant="dark"
-              />
+              <ScrollView style={{maxHeight: 250, marginVertical: 10}}>
+                {categories.map(cat => (
+                  <View key={cat} style={styles.catItem}>
+                    <Text style={{fontSize:16}}>{cat}</Text>
+                    <TouchableOpacity onPress={() => deleteCategory(cat)} style={{padding: 8}}><MaterialCommunityIcons name="delete-outline" size={24} color="#F44336" /></TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+              <TouchableOpacity style={styles.closeBtn} onPress={() => setCatManagerVisible(false)}><Text style={{color:'white', fontWeight:'bold'}}>完成並關閉</Text></TouchableOpacity>
             </View>
-          </TouchableWithoutFeedback>
-        </TouchableOpacity>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
-      {renderDateModal()}
     </SafeAreaView>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  addButton: { position: 'absolute', bottom: 30, right: 20, backgroundColor: '#007AFF', padding: 15, borderRadius: 30, zIndex: 10, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3 },
-  addButtonText: { color: '#fff', fontWeight: 'bold' },
-  scrollContent: { padding: 15, paddingTop: 20, paddingBottom: 100, alignItems: 'center' },
-  contentInner: { width: '100%', maxWidth: 1000 }, // 限制電腦端最大寬度
-  header: { alignItems: 'center', marginBottom: 25 },
-  companyName: { fontSize: 18, color: '#333' },
-  reportTitle: { fontSize: 24, fontWeight: 'bold', color: '#000', marginTop: 5 },
-  tableWrapper: { borderWidth: 1, borderColor: '#000', backgroundColor: '#fff' },
-  weekInfoBar: { backgroundColor: '#f8f9fa', padding: 5, borderBottomWidth: 1, borderColor: '#000', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 10 },
-  weekInfoText: { fontSize: 12, fontWeight: 'bold', color: '#444' },
-  row: { flexDirection: 'row', borderBottomWidth: 1, borderColor: '#000' },
-  tableHeader: { backgroundColor: '#eee' },
-  bold: { fontWeight: 'bold' },
-  cell: { padding: 8, borderRightWidth: 1, borderColor: '#000', fontSize: 13, justifyContent: 'center' },
-  categoryRow: { backgroundColor: '#f9f9f9', padding: 8, borderBottomWidth: 1, borderColor: '#000' },
-  alertCategory: { backgroundColor: '#ffe6e6' },
-  categoryText: { fontWeight: 'bold' },
-  modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
-  modalContent: { backgroundColor: '#1c1c1e', padding: 20, borderRadius: 12, width: '90%', maxWidth: 400 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center', color: '#fff' },
-  label: { fontSize: 12, color: '#999', marginBottom: 5 },
-  input: { borderWidth: 1, borderColor: '#38383a', padding: 10, borderRadius: 6, marginBottom: 15, minHeight: 40, justifyContent: 'center', color: '#fff', backgroundColor: '#2c2c2e' },
-  inputText: { color: '#fff' },
-  modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  cancelBtn: { padding: 10 },
-  cancelBtnText: { color: '#999' },
-  saveBtn: { backgroundColor: '#212529', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6 },
-  whiteText: { color: '#fff', fontWeight: 'bold' },
-  datePickerOverlay: { flex: 1, justifyContent: Platform.OS === 'web' ? 'center' : 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center' },
-  progressOption: { backgroundColor: '#2c2c2e', padding: 15, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#38383a' },
-  progressOptionText: { textAlign: 'center', fontSize: 16, fontWeight: '500', color: '#fff' },
-  datePickerSheet: { backgroundColor: '#1c1c1e', borderRadius: 12, width: '90%', maxWidth: 400, paddingBottom: 20 },
-  datePickerHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, borderBottomWidth: 0.5, borderColor: '#38383a' },
-  linkText: { color: '#0A84FF' },
-  confirmText: { color: '#0A84FF', fontWeight: 'bold' },
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  header: { padding: 16, backgroundColor: '#1A237E' },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: 'white', textAlign: 'center', marginBottom: 12 },
+  searchRow: { flexDirection: 'row', alignItems: 'center' },
+  searchBar: { flex: 1, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 15, height: 45 },
+  printBtn: { marginLeft: 15 },
+  sectionHeader: { padding: 8, backgroundColor: '#EEE' },
+  sectionTitle: { fontWeight: 'bold', color: '#555', fontSize: 12 },
+  card: { backgroundColor: 'white', margin: 12, padding: 15, borderRadius: 12, elevation: 3 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  tag: { backgroundColor: '#E1F5FE', color: '#0288D1', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5, fontSize: 11, fontWeight: 'bold' },
+  dateTag: { fontSize: 12, color: '#999', marginLeft: 8 },
+  taskTitle: { fontSize: 17, fontWeight: 'bold', color: '#333' },
+  workerText: { fontSize: 14, color: '#1A237E', marginTop: 5, fontWeight: '600' },
+  statusDesc: { fontSize: 14, color: '#666', marginTop: 4 },
+  btnRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12, borderTopWidth: 0.5, borderTopColor: '#F0F0F0', paddingTop: 10 },
+  iconBtn: { flexDirection: 'row', alignItems: 'center', marginLeft: 20 },
+  blueText: { color: '#2196F3' }, redText: { color: '#F44336' },
+  fab: { position: 'absolute', bottom: 30, right: 25, backgroundColor: '#1A237E', width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', elevation: 8 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 20, maxHeight: '90%' },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 15, color: '#1A237E' },
+  label: { fontSize: 14, fontWeight: 'bold', color: '#444', marginTop: 15, marginBottom: 8 },
+  rowLabel: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  manageText: { fontSize: 13, color: '#1A237E', fontWeight: 'bold', textDecorationLine: 'underline', padding: 5 },
+  input: { borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 12, fontSize: 16, backgroundColor: '#FAFAFA' },
+  catGroup: { flexDirection: 'row', flexWrap: 'wrap' },
+  catBtn: { borderWidth: 1, borderColor: '#DDD', borderRadius: 20, paddingVertical: 6, paddingHorizontal: 14, marginRight: 8, marginBottom: 8 },
+  catBtnActive: { backgroundColor: '#1A237E', borderColor: '#1A237E' },
+  modalActionRow: { flexDirection: 'row', marginTop: 20, marginBottom: 30 },
+  cancelBtn: { flex: 1, padding: 15, alignItems: 'center' },
+  saveBtn: { flex: 2, backgroundColor: '#1A237E', padding: 15, borderRadius: 12, alignItems: 'center' },
+  managerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  managerContent: { backgroundColor: 'white', borderRadius: 20, padding: 20, width: '100%', elevation: 10 },
+  addCatRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  addBtn: { backgroundColor: '#4CAF50', padding: 12, borderRadius: 8 },
+  catItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EEE' },
+  closeBtn: { backgroundColor: '#1A237E', padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 10 }
 });
-
-export default App;

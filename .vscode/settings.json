@@ -1,3 +1,4 @@
 {
-    "editor.minimap.sectionHeaderFontSize": 15
+  "editor.minimap.sectionHeaderFontSize": 15,
+  "cSpell.words": ["worklog"]
 }

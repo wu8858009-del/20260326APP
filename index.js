@@ -1,10 +1,19 @@
-// 導入 Expo 的根組件註冊工具
-import { registerRootComponent } from 'expo';
+export default {
+  async fetch(request, env) {
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Content-Type": "application/json;charset=UTF-8"
+    };
 
-// 導入主應用程式組件
-import App from './App';
+    // 從 KV 抓取剛才上傳的內容
+    const code = await env.MY_APP_KV.get("latest_app_js");
 
-// registerRootComponent 會呼叫 AppRegistry.registerComponent('main', () => App);
-// 這能確保無論是在 Expo Go 還是原生構建中加載 App，
-// 環境都能得到適當的設置。
-registerRootComponent(App);
+    const data = {
+      message: "抓取成功！",
+      content: code || "目前雲端沒有資料",
+      time: new Date().toLocaleString()
+    };
+
+    return new Response(JSON.stringify(data), { headers: corsHeaders });
+  },
+};

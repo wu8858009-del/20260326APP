@@ -1,0 +1,7 @@
+name = "20260326app"
+main = "index.js"
+compatibility_date = "2024-03-27"
+
+[[kv_namespaces]]
+binding = "MY_APP_KV"
+id = "afd1f111458449b6ba9515df1d514346"
