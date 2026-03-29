@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet, Text, View, SectionList, TouchableOpacity, SafeAreaView,
-  StatusBar, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Image, Dimensions, Vibration
+  StatusBar, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, 
+  ScrollView, Image, Dimensions
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,7 +11,7 @@ import * as Sharing from 'expo-sharing';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import * as ImagePicker from 'expo-image-picker';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // --- 日曆中文化 ---
 LocaleConfig.locales['zh'] = {
@@ -37,6 +38,9 @@ export default function App() {
   const [tempCatName, setTempCatName] = useState(''); 
   const [targetCat, setTargetCat] = useState(''); 
   const [isAddingNew, setIsAddingNew] = useState(false);
+
+  // --- 記錄連續點擊時間 ---
+  const [lastTap, setLastTap] = useState(0); 
 
   const [previewImage, setPreviewImage] = useState(null); 
   const [isEditMode, setIsEditMode] = useState(false);
@@ -66,24 +70,28 @@ export default function App() {
     }
   }, [tasks, categories, isRehydrated]);
 
-  // --- 分類管理邏輯 ---
-  const confirmDeleteCat = (catName) => {
-    if (categories.length <= 1) return Alert.alert("提示", "至少需保留一個分類");
-    
-    Alert.alert("確認刪除", `確定刪除「${catName}」？\n所有屬於此分類的紀錄將移至第一分類。`, [
-      { text: "取消", style: "cancel" },
-      { text: "刪除", style: 'destructive', onPress: () => {
-        const newCats = categories.filter(c => c !== catName);
-        const fallbackCat = newCats[0];
-        setCategories(newCats);
-        if (form.category === catName) setForm(prev => ({...prev, category: fallbackCat}));
-        setTasks(prev => prev.map(t => t.category === catName ? { ...t, category: fallbackCat } : t));
-      }}
-    ]);
+  // --- 分類管理：雙擊刪除邏輯 (已取消震動) ---
+  const handleDeleteCat = (catName) => {
+    const now = Date.now();
+    const DOUBLE_PRESS_DELAY = 400; // 0.4 秒判定為雙擊
+
+    if (lastTap && (now - lastTap) < DOUBLE_PRESS_DELAY) {
+      if (categories.length <= 1) return Alert.alert("提示", "至少需保留一個分類");
+      
+      const newCats = categories.filter(c => c !== catName);
+      const fallbackCat = newCats[0]; 
+      
+      setCategories(newCats);
+      setTasks(prev => prev.map(t => t.category === catName ? { ...t, category: fallbackCat } : t));
+      if (form.category === catName) setForm(prev => ({...prev, category: fallbackCat}));
+      
+      setLastTap(0);
+    } else {
+      setLastTap(now);
+    }
   };
 
   const handleLongPressCategory = (catName) => {
-    Vibration.vibrate(50);
     setIsAddingNew(false);
     setTargetCat(catName);
     setTempCatName(catName);
@@ -133,10 +141,7 @@ export default function App() {
   };
 
   const deleteTask = (id) => {
-    Alert.alert("確認刪除", "確定刪除這筆紀錄？", [
-      { text: "取消", style: "cancel" },
-      { text: "刪除", style: "destructive", onPress: () => setTasks(tasks.filter(t => t.id !== id)) }
-    ]);
+    Alert.alert("確認刪除", "確定刪除這筆紀錄？",);
   };
 
   const pickImage = async (useCamera = false) => {
@@ -169,7 +174,7 @@ export default function App() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>水灣碧潭工程週誌</Text>
         <View style={styles.searchRow}>
-          <TextInput style={styles.searchBar} placeholder="🔍 搜尋施工項目..." value={searchQuery} onChangeText={setSearchQuery} />
+          <TextInput style={styles.searchBar} placeholder="🔍 搜尋項目..." value={searchQuery} onChangeText={setSearchQuery} />
           <TouchableOpacity onPress={handlePrint} style={styles.pdfBtn}><MaterialCommunityIcons name="file-pdf-box" size={32} color="white" /></TouchableOpacity>
         </View>
       </View>
@@ -217,29 +222,20 @@ export default function App() {
               </View>
 
               <Text style={styles.label}>項目名稱</Text>
-              <TextInput style={styles.input} value={form.task} onChangeText={t => setForm({...form, task: t})} placeholder="輸入施工項目..." />
+              <TextInput style={styles.input} value={form.task} onChangeText={t => setForm({...form, task: t})} />
 
-              <Text style={[styles.label, {marginTop:15}]}>分類 (點擊選取 / 長按修改 / 垃圾桶刪除)</Text>
+              <Text style={[styles.label, {marginTop:15}]}>分類 (單擊選取 / 長按修改 / 連按二下刪除)</Text>
               <View style={styles.catGroup}>
                 {categories.map((cat, idx) => (
                   <View key={`${cat}-${idx}`} style={[styles.catChip, form.category === cat && styles.catChipActive]}>
-<TouchableOpacity 
-  style={styles.catChipMain}
-  onPress={() => {
-    const now = Date.now();
-    if (lastTap && (now - lastTap) < 300) {
-      // 👉 雙擊刪除
-      confirmDeleteCat(cat);
-    } else {
-      setLastTap(now);
-      setForm({...form, category: cat}); // 單擊還是選取
-    }
-  }}
-  onLongPress={() => handleLongPressCategory(cat)}
->
+                    <TouchableOpacity 
+                      style={styles.catChipMain}
+                      onPress={() => setForm({...form, category: cat})}
+                      onLongPress={() => handleLongPressCategory(cat)}
+                    >
                       <Text style={{color: form.category === cat ? 'white' : '#666', fontSize: 12}}>{cat}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.catChipDel} onPress={() => confirmDeleteCat(cat)}>
+                    <TouchableOpacity style={styles.catChipDel} onPress={() => handleDeleteCat(cat)}>
                       <MaterialCommunityIcons name="delete-outline" size={16} color={form.category === cat ? 'white' : '#F44336'} />
                     </TouchableOpacity>
                   </View>
@@ -249,8 +245,9 @@ export default function App() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.label}>施工人員 / 日期</Text>
-              <TextInput style={styles.input} value={form.workers} onChangeText={t => setForm({...form, workers: t})} placeholder="如: 大鼎 2人" />
+              <Text style={styles.label}>施工人員</Text>
+              <TextInput style={styles.input} value={form.workers} onChangeText={t => setForm({...form, workers: t})} />
+              
               <View style={{marginTop: 15, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: '#EEE'}}>
                 <Calendar onDayPress={d => setForm({...form, date: d.dateString})} markedDates={{[form.date]: {selected: true, selectedColor: '#1A237E'}}} />
               </View>
@@ -275,8 +272,8 @@ export default function App() {
       <Modal visible={catEditModalVisible} transparent animationType="fade">
         <View style={styles.catModalOverlay}>
           <View style={styles.catModalContent}>
-            <Text style={styles.modalTitle}>{isAddingNew ? "🏷️ 新增分類" : "🔧 修改分類名稱"}</Text>
-            <TextInput style={[styles.input, {marginVertical: 15}]} value={tempCatName} onChangeText={setTempCatName} placeholder="輸入名稱..." autoFocus />
+            <Text style={styles.modalTitle}>{isAddingNew ? "🏷️ 新增分類" : "🔧 修改名稱"}</Text>
+            <TextInput style={[styles.input, {marginVertical: 15}]} value={tempCatName} onChangeText={setTempCatName} autoFocus />
             <View style={{flexDirection:'row'}}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setCatEditModalVisible(false)}><Text>取消</Text></TouchableOpacity>
               <TouchableOpacity style={styles.saveBtn} onPress={handleSaveCategory}><Text style={{color:'white', fontWeight:'bold'}}>確定</Text></TouchableOpacity>
@@ -288,7 +285,10 @@ export default function App() {
       <TouchableOpacity style={styles.fab} onPress={() => openModal()}><MaterialCommunityIcons name="plus" size={35} color="white" /></TouchableOpacity>
 
       <Modal visible={!!previewImage} transparent animationType="fade">
-        <View style={styles.previewOverlay}><TouchableOpacity style={styles.closePreview} onPress={() => setPreviewImage(null)}><MaterialCommunityIcons name="close-circle" size={40} color="white" /></TouchableOpacity><Image source={{ uri: previewImage }} style={styles.fullImage} resizeMode="contain" /></View>
+        <View style={styles.previewOverlay}>
+          <TouchableOpacity style={styles.closePreview} onPress={() => setPreviewImage(null)}><MaterialCommunityIcons name="close-circle" size={40} color="white" /></TouchableOpacity>
+          <Image source={{ uri: previewImage }} style={styles.fullImage} resizeMode="contain" />
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -307,42 +307,39 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 15, paddingBottom: 5 },
   tag: { backgroundColor: '#E1F5FE', color: '#0288D1', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5, fontSize: 11, fontWeight: 'bold' },
   dateTag: { fontSize: 12, color: '#999', marginLeft: 8 },
-  progressText: { fontWeight: 'bold', fontSize: 15 },
-  cardBody: { flexDirection: 'row', paddingHorizontal: 15, paddingBottom: 12, alignItems: 'center' },
-  taskTitle: { fontSize: 17, fontWeight: 'bold', color: '#333', flex: 1 },
-  workerText: { fontSize: 13, color: '#666', marginTop: 4 },
-  cardThumb: { width: 50, height: 50, borderRadius: 8, marginLeft: 10, borderWidth:1, borderColor:'#eee' },
-  progressContainer: { height: 4, backgroundColor: '#EEE', marginHorizontal: 15 },
-  progressBar: { height: 4 },
-  actionRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#F0F0F0', backgroundColor: '#FAFAFA' },
+  progressText: { fontWeight: 'bold' },
+  cardBody: { flexDirection: 'row', padding: 15, paddingTop: 5 },
+  taskTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 5 },
+  workerText: { fontSize: 13, color: '#666' },
+  cardThumb: { width: 60, height: 60, borderRadius: 8, marginLeft: 10 },
+  progressContainer: { height: 4, backgroundColor: '#EEE' },
+  progressBar: { height: '100%' },
+  actionRow: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#F0F0F0' },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRightWidth: 1, borderRightColor: '#F0F0F0' },
-  actionBtnText: { marginLeft: 4, fontSize: 11, color: '#444', fontWeight: 'bold' },
-  fab: { position: 'absolute', bottom: 30, right: 25, backgroundColor: '#1A237E', width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', elevation: 8 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 30, borderTopRightRadius: 30, padding: 20, maxHeight: '92%' },
-  catModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  catModalContent: { backgroundColor: 'white', width: '85%', borderRadius: 20, padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1A237E', textAlign: 'center' },
-  label: { fontSize: 13, fontWeight: 'bold', color: '#444', marginTop: 12, marginBottom: 6 },
-  imgBox: { width: 60, height: 60, backgroundColor: '#F5F5F5', borderRadius: 10, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#DDD' },
-  imgTextBtn: { marginLeft: 12, padding: 8, backgroundColor: '#E8EAF6', borderRadius: 8 },
-  input: { borderWidth: 1, borderColor: '#DDD', borderRadius: 8, padding: 10, backgroundColor: '#FAFAFA' },
-  
-  catGroup: { flexDirection: 'row', flexWrap: 'wrap' },
-  catChip: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#DDD', borderRadius: 20, marginRight: 6, marginBottom: 6, overflow: 'hidden' },
+  actionBtnText: { fontSize: 12, marginLeft: 5, color: '#555' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 25, borderTopRightRadius: 25, padding: 20, maxHeight: '90%' },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 20, color: '#1A237E' },
+  label: { fontSize: 14, fontWeight: 'bold', color: '#444', marginBottom: 8, marginTop: 5 },
+  input: { backgroundColor: '#F5F5F5', borderRadius: 10, padding: 12, fontSize: 14 },
+  imgBox: { width: 80, height: 80, backgroundColor: '#F5F5F5', borderRadius: 10, justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderWidth: 1, borderColor: '#DDD' },
+  imgTextBtn: { marginLeft: 15, padding: 10, backgroundColor: '#E8EAF6', borderRadius: 8 },
+  catGroup: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 15 },
+  catChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 20, marginRight: 8, marginBottom: 8, borderWidth: 1, borderColor: '#EEE', overflow: 'hidden' },
   catChipActive: { backgroundColor: '#1A237E', borderColor: '#1A237E' },
-  catChipMain: { paddingVertical: 5, paddingLeft: 12, paddingRight: 6 },
-  catChipDel: { paddingVertical: 5, paddingRight: 8, paddingLeft: 4, borderLeftWidth: 1, borderLeftColor: 'rgba(0,0,0,0.05)' },
-  addCatBtn: { borderWidth: 1, borderColor: '#2196F3', borderRadius: 20, paddingVertical: 5, paddingHorizontal: 12, marginBottom: 6 },
-
-  progressBtnRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  pBtn: { flex: 1, borderWidth: 1, borderColor: '#DDD', borderRadius: 20, paddingVertical: 6, alignItems: 'center', marginHorizontal: 2 },
-  catBtnActive: { backgroundColor: '#1A237E', borderColor: '#1A237E' },
-
-  modalActionRow: { flexDirection: 'row', marginTop: 25, marginBottom: 30 },
-  cancelBtn: { flex: 1, alignItems: 'center', padding: 12 },
-  saveBtn: { flex: 2, backgroundColor: '#1A237E', padding: 12, borderRadius: 10, alignItems: 'center' },
-  previewOverlay: { flex: 1, backgroundColor: 'black', justifyContent: 'center' },
-  fullImage: { width: SCREEN_WIDTH, height: SCREEN_HEIGHT * 0.8 },
+  catChipMain: { paddingHorizontal: 12, paddingVertical: 6 },
+  catChipDel: { paddingHorizontal: 8, paddingVertical: 6, borderLeftWidth: 1, borderLeftColor: 'rgba(0,0,0,0.1)' },
+  addCatBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#2196F3', marginBottom: 8 },
+  progressBtnRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+  pBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', backgroundColor: '#F5F5F5', marginHorizontal: 2, borderRadius: 5 },
+  catBtnActive: { backgroundColor: '#1A237E' },
+  modalActionRow: { flexDirection: 'row', marginTop: 25, marginBottom: 20 },
+  cancelBtn: { flex: 1, padding: 15, alignItems: 'center' },
+  saveBtn: { flex: 2, padding: 15, backgroundColor: '#1A237E', borderRadius: 10, alignItems: 'center' },
+  fab: { position: 'absolute', right: 20, bottom: 30, width: 65, height: 65, borderRadius: 33, backgroundColor: '#1A237E', justifyContent: 'center', alignItems: 'center', elevation: 5 },
+  catModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  catModalContent: { width: '80%', backgroundColor: 'white', borderRadius: 20, padding: 20 },
+  previewOverlay: { flex: 1, backgroundColor: 'black', justifyContent: 'center', alignItems: 'center' },
+  fullImage: { width: '100%', height: '80%' },
   closePreview: { position: 'absolute', top: 50, right: 20, zIndex: 10 }
 });
