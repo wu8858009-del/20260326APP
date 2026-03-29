@@ -1,35 +1,10 @@
 {
   "expo": {
-    "name": "20260326APP",
-    "slug": "20260326APP",
+    "name": "water-bay-log",
+    "slug": "water-bay-log",
     "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
-    "ios": {
-      "supportsTablet": true
-    },
-    "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
-    },
     "web": {
-      "favicon": "./assets/favicon.png",
-      "bundler": "metro",
-      "output": "single"
-    },
-    "experiments": {
-      "baseUrl": "/20260326APP"
-    },
-    "plugins": ["@react-native-community/datetimepicker"]
+      "bundler": "metro"
+    }
   }
 }
